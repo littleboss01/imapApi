@@ -120,39 +120,18 @@ func StartGetMail(c *gin.Context) {
 		defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
 		var msg string
 		var err1 error
-		_, err2 := imap.Cli.Select("INBOX", false)
-		if err2 != nil {
-			log.Println("select", err2)
-		}
+
+		boxName := ""
 		for {
-			/*select {
-
-			case <-time.After(3 * time.Second):
-				log.Println("收取邮件中...")
-
-				msg, err1 = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
-				if err1 != nil {
-					msg = "邮件收取失败"
-					return
-				}
-				if msg != "" {
-					log.Println("msg:", msg)
-					now := time.Now()
-					// Add message to database with expiration time
-					userMail := &UserMails{Username: user, Title: title, To: to, Content: msg, Expiration: now.Add(60 * time.Second)}
-
-					mutex_sql.Lock()
-					Db.Create(userMail)
-					mutex_mail.Unlock()
-
-					return
-				}
-			case <-ctx.Done():
-				msg = "邮件收取超时"
-				log.Println("邮件收取超时")
-				return
-
-			}*/
+			if boxName != "INBOX" {
+				boxName = "INBOX"
+			} else {
+				boxName = "Junk"
+			}
+			_, err2 := imap.Cli.Select(boxName, false)
+			if err2 != nil {
+				log.Println("select", err2)
+			}
 			log.Println("收取邮件中...")
 
 			msg, err1 = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
@@ -200,39 +179,44 @@ func GetMailWait(c *gin.Context) {
 	}
 	imap := &Imap{}
 	if imap.Login(3, user, pass, false) == 1 {
-		_, err2 := imap.Cli.Select("INBOX", false)
-		if err2 != nil {
-			log.Println("select", err2)
-		}
 		var msg string
 		var err1 error
 		var ctx context.Context
 		var cancelFunc context.CancelFunc
 		ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(timeOUt)*time.Second)
-		go func() {
-			defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
-			for {
-				log.Println("收取邮件中...")
 
-				msg, err1 = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
-				if err1 != nil {
-					msg = "邮件收取失败"
-					break
-				}
-				if msg != "" {
-					log.Println("msg:", msg)
-					break
-				}
-				if ctx.Err() == context.DeadlineExceeded {
-					msg = "邮件收取超时"
-					log.Println("邮件收取超时")
-					break
-				}
-				time.Sleep(3 * time.Second)
+		defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
+		boxName := ""
+		for {
+			if boxName != "INBOX" {
+				boxName = "INBOX"
+			} else { //垃圾箱
+				boxName = "Junk"
 			}
+			_, err2 := imap.Cli.Select(boxName, false)
+			if err2 != nil {
+				log.Println("select", err2)
+			}
+			log.Println("收取邮件中...")
 
-		}()
-		c.JSON(200, gin.H{"status": "mail fetching started"})
+			msg, err1 = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
+			if err1 != nil {
+				msg = "邮件收取失败"
+				break
+			}
+			if msg != "" {
+				log.Println("msg:", msg)
+				break
+			}
+			if ctx.Err() == context.DeadlineExceeded {
+				msg = "邮件收取超时"
+				log.Println("邮件收取超时")
+				break
+			}
+			time.Sleep(3 * time.Second)
+		}
+
+		c.JSON(200, gin.H{"msg": msg})
 	} else {
 		c.JSON(200, gin.H{"status": "mail fetching failed"})
 	}

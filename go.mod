@@ -2,6 +2,8 @@ module imapApi
 
 go 1.20
 
+replace MyUitls => ../MyUitls
+
 require (
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-message v0.16.0
@@ -9,6 +11,7 @@ require (
 	golang.org/x/net v0.11.0
 	gorm.io/driver/sqlite v1.5.2
 	gorm.io/gorm v1.25.2
+	MyUitls v0.0.0-00010101000000-000000000000
 )
 
 require (

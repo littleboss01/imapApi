@@ -14,6 +14,7 @@ import (
 
 func main() {
 
+	//api.Send("bihoyo@outlook.com", "1a328358", "124149449@qq.com", "test", "hello")
 	// Connect to SQLite database
 	var err error
 	newLogger := logger.New(
@@ -47,6 +48,7 @@ func main() {
 	r.GET("/mail/getMail", api.GetMail)
 	r.GET("/mail/getMailWait", api.GetMailWait)
 	r.GET("/mail/logout", api.Logout)
+	r.GET("/mail/SendMail", api.SendMail)
 
 	err = r.Run(":8080")
 	if err != nil {

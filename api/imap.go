@@ -1,6 +1,7 @@
 package api
 
 import (
+	"MyUitls"
 	"crypto/tls"
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -22,36 +23,45 @@ type Imap struct {
 }
 
 // 通过邮箱账号获取的gmail或者outlook的imap地址
-func (g *Imap) GetImapAddr(email string) (mailAddr string, serverName string) {
+func (g *Imap) GetImapAddr(email string) (mailAddr string, serverName string, isSSl bool) {
 	if email == "" {
-		return "", ""
+		return "", "", false
 	}
 	if strings.Contains(email, "gmail") {
 		mailAddr = "imap.gmail.com:993"
 		serverName = "imap.gmail.com"
+		isSSl = true
 	} else if strings.Contains(email, "outlook") || strings.Contains(email, "hotmail") {
 		mailAddr = "outlook.office365.com:993"
 		serverName = "outlook.office365.com"
+		isSSl = true
 	} else {
 		//取出邮箱@右边的字符
 		mailAddr = strings.Split(email, "@")[1]
-		mailAddr = mailAddr + ":993"
+		mailAddr = MyUitls.DomainToIp(mailAddr)
+		mailAddr = mailAddr + ":143"
 		serverName = mailAddr
+		isSSl = false
 	}
-	return mailAddr, serverName
+	return mailAddr, serverName, isSSl
 }
 
 func (g *Imap) Login(count int, user string, pass string, isDelAll bool) int {
 	var err error
 	g.username = user
 	g.password = pass
-	mailAddr, ServerName := g.GetImapAddr(user)
+	mailAddr, ServerName, isSsl := g.GetImapAddr(user)
 	for i := 0; i < count; i++ {
-		g.Cli, err = client.DialTLS(mailAddr, &tls.Config{
-			ServerName:         ServerName,
-			InsecureSkipVerify: true,             // 验证服务器证书
-			MinVersion:         tls.VersionTLS12, // 仅允许使用 TLS1.2 及以上的版本
-		})
+		if isSsl {
+			g.Cli, err = client.DialTLS(mailAddr, &tls.Config{
+				ServerName:         ServerName,
+				InsecureSkipVerify: true,             // 验证服务器证书
+				MinVersion:         tls.VersionTLS12, // 仅允许使用 TLS1.2 及以上的版本
+			})
+		} else {
+			g.Cli, err = client.Dial(mailAddr)
+		}
+
 		if err != nil {
 			log.Println("Unable to connect to IMAP server: ", err)
 		}
