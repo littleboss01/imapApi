@@ -238,23 +238,23 @@ func (g *Imap) GetMailByIds(ids []uint32) ([]*imap.Message, error) {
 }
 
 // GetMailByTitleAndTime 获取包含指定标题,指定收件人,指定时间范围内的邮件 retrieves the first email message matching the given criteria
-func (g *Imap) GetMailByTitleAndTime(title, to, startTime, regex string, isDel bool) (string, error) {
-	var info string
+func (g *Imap) GetMailByTitleAndTime(title, to, startTime, regex string, isDel bool) (info string, err error, id uint32) {
 
 	ids, _ := g.GetMailByCondition(title, to, startTime)
 	if len(ids) == 0 {
-		return "", nil
+		return "", nil, 0
 	}
 
 	messages, _ := g.GetMailByIds(ids)
 	if len(messages) == 0 {
-		return "", nil
+		return "", nil, 0
 	}
 	var msg *imap.Message
 	for _, v := range messages {
 		if strings.Contains(v.Envelope.Subject, title) {
 			msg = v
-
+			id = v.Uid
+			break
 		}
 	}
 
@@ -328,7 +328,7 @@ func (g *Imap) GetMailByTitleAndTime(title, to, startTime, regex string, isDel b
 			log.Println(err)
 		}
 	}
-	return info, nil
+	return info, nil, id
 }
 
 // hmailserver  创建邮箱账号

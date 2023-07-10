@@ -181,11 +181,20 @@ func GetMailWait(c *gin.Context) {
 	if imap.Login(3, user, pass, false) == 1 {
 		var msg string
 		var err1 error
+		var id uint32
 		var ctx context.Context
 		var cancelFunc context.CancelFunc
 		ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(timeOUt)*time.Second)
 
 		defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
+		defer func() {
+			go func() {
+				if msg != "" && isDel {
+					imap.DelMail([]uint32{id})
+				}
+				imap.Cli.Logout()
+			}()
+		}()
 		boxName := ""
 		for {
 			if boxName != "INBOX" {
@@ -199,7 +208,7 @@ func GetMailWait(c *gin.Context) {
 			}
 			log.Println("收取邮件中...")
 
-			msg, err1 = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
+			msg, err1, id = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
 			if err1 != nil {
 				msg = "邮件收取失败"
 				break
