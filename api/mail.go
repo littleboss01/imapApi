@@ -2,7 +2,6 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"log"
 	"strconv"
@@ -19,6 +18,17 @@ type UserMails struct {
 	Expiration time.Time
 	Regex      string
 	IsDel      bool
+}
+
+type Api struct {
+	User      string `form:"user" json:"user" `
+	Pass      string `form:"pass" json:"pass" `
+	To        string `form:"to" json:"to" `
+	Title     string `form:"title" json:"title" `
+	StartTime string `form:"startTime" json:"startTime" `
+	Regex     string `form:"regex" json:"regex" `
+	TimeOUt   int    `form:"timeOUt" json:"timeOUt" `
+	IsDel     bool   `form:"isDel" json:"isDel" `
 }
 
 var Db *gorm.DB
@@ -93,151 +103,58 @@ func Login(c *gin.Context) {
 	})
 }
 
+/*user := c.Query("user")
+title := c.Query("title")
+to := c.Query("to")
+startTime := c.Query("startTime")
+regex := c.Query("regex")
+timeOUt, _ := strconv.Atoi(c.Query("timeOUt"))
+if timeOUt == 0 {
+	timeOUt = 30
+}
+isDel, err := strconv.ParseBool(c.Query("isDel")) //isDelStr转换为bool
+if err != nil {
+	c.JSON(200, gin.H{"code": -1, "msg": "isDelStr 转换为 bool 失败"})
+	return
+}*/
+
 func StartGetMail(c *gin.Context) {
-	user := c.Query("user")
-	title := c.Query("title")
-	to := c.Query("to")
-	startTime := c.Query("startTime")
-	regex := c.Query("regex")
-	timeOUt, _ := strconv.Atoi(c.Query("timeOUt"))
-	if timeOUt == 0 {
-		timeOUt = 30
-	}
-	isDel, err := strconv.ParseBool(c.Query("isDel")) //isDelStr转换为bool
+	var api Api
+	err := c.ShouldBindQuery(&api)
 	if err != nil {
-		c.JSON(200, gin.H{"code": -1, "msg": "isDelStr 转换为 bool 失败"})
+		c.JSON(200, gin.H{"code": -1, "msg": "参数错误"})
 		return
 	}
-	imap := SafeGet(user)
-	if imap == nil {
-		c.JSON(200, gin.H{"code": -1, "msg": "邮箱 未登录"})
-		return
+	if api.TimeOUt == 0 {
+		api.TimeOUt = 30
 	}
-	var ctx context.Context
-	var cancelFunc context.CancelFunc
-	ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(timeOUt)*time.Second)
-	go func() {
-		var msg string
-		var err1 error
-		var id uint32
-		defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
-		defer func() {
-			go func() {
-				if msg != "" && isDel {
-					imap.DelMail([]uint32{id})
-				}
-				imap.Cli.Logout()
-			}()
-		}()
-
-		boxName := ""
-		for {
-			if boxName != "INBOX" {
-				boxName = "INBOX"
-			} else {
-				boxName = "Junk"
-			}
-			_, err2 := imap.Cli.Select(boxName, false)
-			if err2 != nil {
-				log.Println("select", err2)
-			}
-			log.Println("收取邮件中...")
-
-			msg, err1, id = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
-			if err1 != nil {
-				msg = "邮件收取失败"
-				return
-			}
-			if msg != "" {
-				log.Println("msg:", msg)
-				now := time.Now()
-				// Add message to database with expiration time
-				userMail := &UserMails{Username: user, Title: title, To: to, Content: msg, Expiration: now.Add(60 * time.Second)}
-
+	imap := &Imap{}
+	println(api.User, api.Pass, api.To, api.Title, api.StartTime, api.Regex, api.TimeOUt, api.IsDel)
+	if imap.Login(3, api.User, api.Pass, false) == 1 {
+		go func() {
+			code, msg := imap.GetMail(api)
+			if code == 1 {
+				//写到数据库
 				mutex_sql.Lock()
-				Db.Create(userMail)
-				mutex_mail.Unlock()
+				Db.Create(&UserMails{Username: api.User, Title: api.Title, To: api.To, Content: msg, Expiration: time.Now().Add(time.Duration(api.TimeOUt) * time.Second), Regex: api.Regex, IsDel: api.IsDel})
+				mutex_sql.Unlock()
 			}
-			time.Sleep(3 * time.Second)
-			if ctx.Err() == context.DeadlineExceeded {
-				msg = "邮件收取超时"
-				log.Println("邮件收取超时")
-				break
-			}
-
-		}
-	}()
-
-	c.JSON(200, gin.H{"status": "mail fetching started"})
+		}()
+		c.JSON(200, gin.H{"code": 1, "msg": "开始收取邮件"})
+	} else {
+		c.JSON(200, gin.H{"code": 1, "msg": "登录失败"})
+	}
 }
 func GetMailWait(c *gin.Context) {
-	user := c.Query("user")
-	pass := c.Query("pass")
-	title := c.Query("title")
-	to := c.Query("to")
-	startTime := c.Query("startTime")
-	regex := c.Query("regex")
-	timeOUt, _ := strconv.Atoi(c.Query("timeOUt"))
-	if timeOUt == 0 {
-		timeOUt = 30
-	}
-	isDel, err := strconv.ParseBool(c.Query("isDel")) //isDelStr转换为bool
+	var api Api
+	err := c.ShouldBindQuery(&api)
 	if err != nil {
-		c.JSON(200, gin.H{"code": -1, "msg": "isDelStr 转换为 bool 失败"})
+		c.JSON(200, gin.H{"code": -1, "msg": "参数错误"})
 		return
 	}
 	imap := &Imap{}
-	if imap.Login(3, user, pass, false) == 1 {
-		var msg string
-		var err1 error
-		var id uint32
-		var ctx context.Context
-		var cancelFunc context.CancelFunc
-		ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(timeOUt)*time.Second)
-
-		defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
-		defer func() {
-			go func() {
-				if msg != "" && isDel {
-					imap.DelMail([]uint32{id})
-				}
-				imap.Cli.Logout()
-			}()
-		}()
-		boxName := ""
-		for {
-			if boxName != "INBOX" {
-				boxName = "INBOX"
-			} else { //垃圾箱
-				boxName = "Junk"
-			}
-			_, err2 := imap.Cli.Select(boxName, false)
-			if err2 != nil {
-				log.Println("select", err2)
-			}
-			log.Println("收取邮件中...")
-
-			msg, err1, id = imap.GetMailByTitleAndTime(title, to, startTime, regex, isDel)
-			if err1 != nil {
-				msg = "邮件收取失败"
-				break
-			}
-			if msg != "" {
-				log.Println("msg:", msg)
-				break
-			}
-			if ctx.Err() == context.DeadlineExceeded {
-				msg = "邮件收取超时"
-				log.Println("邮件收取超时")
-				break
-			}
-			time.Sleep(3 * time.Second)
-		}
-
-		c.JSON(200, gin.H{"msg": msg})
-	} else {
-		c.JSON(200, gin.H{"status": "mail fetching failed"})
-	}
+	code, msg := imap.GetMail(api)
+	c.JSON(200, gin.H{"code": code, "msg": msg})
 }
 func GetMail(c *gin.Context) {
 	var userMail UserMails
@@ -254,10 +171,10 @@ func GetMail(c *gin.Context) {
 		return
 	}
 
-	if userMail.Expiration.Before(time.Now()) { //判断邮件的时间是否小于当前时间
-		c.JSON(200, gin.H{"msg": "邮件已过期"})
-		return
-	}
+	//if userMail.Expiration.Before(time.Now()) { //判断邮件的时间是否小于当前时间
+	//	c.JSON(200, gin.H{"msg": "邮件已过期"})
+	//	return
+	//}
 	{
 		mutex_mail.Lock()
 		Db.Unscoped().Where(&userMail).Delete(&userMail) //todo 删除数据库中的数据,为什么不是硬删除

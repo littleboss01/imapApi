@@ -7,6 +7,7 @@ import (
 	"github.com/emersion/go-imap/client"
 	"github.com/emersion/go-message/charset"
 	"github.com/emersion/go-message/mail"
+	"golang.org/x/net/context"
 	"io"
 	"io/ioutil"
 	"log"
@@ -20,6 +21,53 @@ type Imap struct {
 	Cli      *client.Client
 	username string
 	password string
+}
+
+func (g *Imap) GetMail(api Api) (code int, msg string) {
+	var err1 error
+	var id uint32
+	var ctx context.Context
+	var cancelFunc context.CancelFunc
+	ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(api.TimeOUt)*time.Second)
+
+	defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
+	defer func() {
+		go func() {
+			if msg != "" && api.IsDel {
+				g.DelMail([]uint32{id})
+			}
+			g.Cli.Logout()
+		}()
+	}()
+	boxName := ""
+	for {
+		if boxName != "INBOX" {
+			boxName = "INBOX"
+		} else { //垃圾箱
+			boxName = "Junk"
+		}
+		if g.SelectMailBox(boxName) == 1 {
+			log.Println("收取邮件中...")
+
+			msg, err1, id = g.GetMailByTitleAndTime(api.Title, api.To, api.StartTime, api.Regex, api.IsDel)
+			if err1 != nil {
+				msg = "邮件收取失败"
+				break
+			}
+			if msg != "" {
+				log.Println("msg:", msg)
+				break
+			}
+		}
+
+		if ctx.Err() == context.DeadlineExceeded {
+			msg = "邮件收取超时"
+			log.Println("邮件收取超时")
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return 1, msg
 }
 
 // 通过邮箱账号获取的gmail或者outlook的imap地址
@@ -69,6 +117,9 @@ func (g *Imap) Login(count int, user string, pass string, isDelAll bool) int {
 		err = g.Cli.Login(user, pass)
 		if err != nil {
 			log.Println("Unable to login to IMAP server: ", err)
+			if strings.Contains(err.Error(), "Invalid user name or password") {
+				break
+			}
 		} else {
 			/*go func(imapClient *client.Client) {
 				for {
@@ -108,6 +159,18 @@ func (g *Imap) Login(count int, user string, pass string, isDelAll bool) int {
 	return 0
 }
 
+// 进入文件夹
+func (g *Imap) SelectMailBox(mailBox string) int {
+	if mailBox == "" {
+		mailBox = "INBOX"
+	}
+	_, err := g.Cli.Select(mailBox, false)
+	if err != nil {
+		log.Println("select", err)
+		return -1
+	}
+	return 1
+}
 func CallCount[T any](count int, stopValues []T, f func(args ...T) T, args ...T) T {
 	var result T
 	for i := 0; i < count; i++ {

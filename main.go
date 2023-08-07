@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -13,7 +14,8 @@ import (
 )
 
 func main() {
-
+	//dlv 无法下断 用当前版本的go编译dlv
+	fmt.Println("start by QQ:124149449 1")
 	//api.Send("bihoyo@outlook.com", "1a328358", "124149449@qq.com", "test", "hello")
 	// Connect to SQLite database
 	var err error
