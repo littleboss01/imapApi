@@ -27,7 +27,7 @@ type Api struct {
 	Title     string `form:"title" json:"title" `
 	StartTime string `form:"startTime" json:"startTime" `
 	Regex     string `form:"regex" json:"regex" `
-	TimeOUt   int    `form:"timeOUt" json:"timeOUt" `
+	TimeOUt   int    `form:"timeOUt" json:"timeOUt" default:"30" `
 	IsDel     bool   `form:"isDel" json:"isDel" `
 }
 
@@ -152,8 +152,15 @@ func GetMailWait(c *gin.Context) {
 		c.JSON(200, gin.H{"code": -1, "msg": "参数错误"})
 		return
 	}
+	if api.TimeOUt == 0 {
+		api.TimeOUt = 30
+	}
 	imap := &Imap{}
-	code, msg := imap.GetMail(api)
+	var code = 0
+	var msg = ""
+	if imap.Login(3, api.User, api.Pass, false) == 1 {
+		code, msg = imap.GetMail(api)
+	}
 	c.JSON(200, gin.H{"code": code, "msg": msg})
 }
 func GetMail(c *gin.Context) {

@@ -25,7 +25,7 @@ type Imap struct {
 
 func (g *Imap) GetMail(api Api) (code int, msg string) {
 	var err1 error
-	var id uint32
+	//var id uint32
 	var ctx context.Context
 	var cancelFunc context.CancelFunc
 	ctx, cancelFunc = context.WithTimeout(context.Background(), time.Duration(api.TimeOUt)*time.Second)
@@ -33,9 +33,6 @@ func (g *Imap) GetMail(api Api) (code int, msg string) {
 	defer cancelFunc() //确保在匿名函数执行完毕前，运行 cancelFunc 函数
 	defer func() {
 		go func() {
-			if msg != "" && api.IsDel {
-				g.DelMail([]uint32{id})
-			}
 			g.Cli.Logout()
 		}()
 	}()
@@ -49,7 +46,7 @@ func (g *Imap) GetMail(api Api) (code int, msg string) {
 		if g.SelectMailBox(boxName) == 1 {
 			log.Println("收取邮件中...")
 
-			msg, err1, id = g.GetMailByTitleAndTime(api.Title, api.To, api.StartTime, api.Regex, api.IsDel)
+			msg, err1, _ = g.GetMailByTitleAndTime(api.Title, api.To, api.StartTime, api.Regex, api.IsDel)
 			if err1 != nil {
 				msg = "邮件收取失败"
 				break
@@ -83,11 +80,31 @@ func (g *Imap) GetImapAddr(email string) (mailAddr string, serverName string, is
 		mailAddr = "outlook.office365.com:993"
 		serverName = "outlook.office365.com"
 		isSSl = true
+	} else if strings.Contains(email, "21cn.com") {
+		mailAddr = "imap-ent.21cn.com:993"
+		serverName = "imap-ent.21cn.com"
+		isSSl = true
+	} else if strings.Contains(email, "pec.it") {
+		mailAddr = "imaps.pec.aruba.it:993"
+		serverName = "imaps.pec.aruba.it"
+		isSSl = true
+	} else if strings.Contains(email, "t-online.de") {
+		mailAddr = "secureimap.t-online.de:993"
+		serverName = "secureimap.t-online.de"
+		isSSl = true
+	} else if strings.Contains(email, "alice.it") {
+		mailAddr = "in.alice.it:143"
+		serverName = "in.alice.it"
+		isSSl = false
+	} else if strings.Contains(email, "sina.com") {
+		mailAddr = "imap.sina.com:993"
+		serverName = "imap.sina.com"
+		isSSl = false
 	} else {
 		//取出邮箱@右边的字符
 		mailAddr = strings.Split(email, "@")[1]
 		mailAddr = MyUitls.DomainToIp(mailAddr)
-		mailAddr = mailAddr + ":143"
+		mailAddr = mailAddr + ":993"
 		serverName = mailAddr
 		isSSl = false
 	}
@@ -143,10 +160,6 @@ func (g *Imap) Login(count int, user string, pass string, isDelAll bool) int {
 				}
 			}(g.cli)*/
 			if isDelAll {
-				_, err := g.Cli.Select("INBOX", false)
-				if err != nil {
-					log.Println(err)
-				}
 				err = g.DelAllMail()
 				if err != nil {
 					log.Println(err)
@@ -196,7 +209,7 @@ func (i *Imap) GetMailList() ([]uint32, error) {
 func (g *Imap) GetMailByCondition(title, to, startTime string) ([]uint32, error) {
 	//todo 使用go-imap的时候 outlook不支持ascii编码 ，那怎么检索中文标题的邮件呢？
 	criteria := imap.NewSearchCriteria()
-	criteria.WithoutFlags = []string{imap.SeenFlag} //排除已读邮件
+	//criteria.WithoutFlags = []string{imap.SeenFlag} //排除已读邮件
 	if title != "" {
 		matched, _ := regexp.MatchString("[^\x00-\x7F]+", title)
 		if matched {
@@ -219,6 +232,8 @@ func (g *Imap) GetMailByCondition(title, to, startTime string) ([]uint32, error)
 	if to != "" {
 		criteria.Header.Set("To", to)
 	}
+	//startTime 支持 2023-8-15 08:04:59吗
+
 	if startTime != "" {
 		criteria.Header.Set("Date", startTime)
 	}
@@ -236,17 +251,29 @@ func (g *Imap) GetMailByCondition(title, to, startTime string) ([]uint32, error)
 		}
 		return []uint32{}, err
 	}
+	/*	//ids按大到小排序,这里的排序无意义后面添加message的时候会升序
+		sort.Slice(ids, func(i, j int) bool {
+			return ids[i] > ids[j]
+		}	)
+		log.Println("ids", ids)*/
 	return ids, nil
 }
 
 // 删除所有邮件
 func (g *Imap) DelAllMail() error {
-	ids, err := g.GetMailList()
-	if err != nil {
-		return err
-	}
-	if len(ids) > 0 {
-		return g.DelMail(ids)
+	var boxNames = []string{"INBOX", "Junk"}
+	for _, boxName := range boxNames {
+		_, err := g.Cli.Select(boxName, false)
+		if err != nil {
+			log.Println(err)
+		}
+		ids, err := g.GetMailList()
+		if err != nil {
+			return err
+		}
+		if len(ids) > 0 {
+			g.DelMail(ids)
+		}
 	}
 	return nil
 }
@@ -275,7 +302,8 @@ func (g *Imap) GetMailByIds(ids []uint32) ([]*imap.Message, error) {
 	section := &imap.BodySectionName{
 		Peek: true,
 	}
-	seqset.AddNum(ids...)
+
+	seqset.AddNum(ids...)                        //这里会从小到大排序
 	item := []imap.FetchItem{imap.FetchEnvelope, //FetchEnvelope是邮件的头部信息
 		imap.FetchInternalDate, //FetchInternalDate是邮件的时间
 		imap.FetchRFC822,       //FetchRFC822是邮件的内容
@@ -293,10 +321,16 @@ func (g *Imap) GetMailByIds(ids []uint32) ([]*imap.Message, error) {
 		return nil, err
 	}
 
-	var msgList []*imap.Message
-	for msg := range messages {
-		msgList = append(msgList, msg)
+	var msgList = make([]*imap.Message, len(ids))
+	for i := len(messages) - 1; i >= 0; i-- {
+		msgList[i] = <-messages
 	}
+	/*	for msg := range messages {
+			msgList = append(msgList, msg)
+		}
+		sort.Slice(msgList, func(i, j int) bool {
+			return msgList[i].SeqNum > msgList[j].SeqNum
+		})*/
 	return msgList, nil
 }
 
@@ -316,6 +350,7 @@ func (g *Imap) GetMailByTitleAndTime(title, to, startTime, regex string, isDel b
 	for _, v := range messages {
 		if strings.Contains(v.Envelope.Subject, title) {
 			msg = v
+			log.Println(v.Envelope.Date.String())
 			id = v.Uid
 			break
 		}
@@ -386,11 +421,13 @@ func (g *Imap) GetMailByTitleAndTime(title, to, startTime, regex string, isDel b
 		}
 	}
 	if isDel {
-		err = g.DelMail(ids)
+		err = g.DelMail([]uint32{id})
 		if err != nil {
 			log.Println(err)
 		}
 	}
+	//info之前加上邮件的时间
+	//info = msg.Envelope.Date.String() + "\n" + info
 	return info, nil, id
 }
 
